@@ -1,0 +1,34 @@
+[package]
+name = "ledger-tron-core"
+version = "0.1.0"
+description = "Ledger Tron app signing client with UniFFI bindings for Swift and Kotlin"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lib]
+name = "ledger_tron_core"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+
+[dependencies]
+async-trait.workspace = true
+thiserror.workspace = true
+hex.workspace = true
+bs58.workspace = true
+sha2.workspace = true
+sha3.workspace = true
+
+uniffi = { workspace = true, features = ["tokio", "cli"] }
+tokio = { workspace = true, features = ["sync", "rt", "macros"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["sync", "rt", "macros", "test-util"] }
+
+[build-dependencies]
+uniffi = { workspace = true, features = ["build"] }
