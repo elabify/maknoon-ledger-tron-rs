@@ -1,0 +1,12 @@
+{
+  "_comment": "Canonical Tron TIP-191 'TRON Signed Message' known-answer vector. Regenerate with: cargo test -p ledger-tron-core --test kat_gen -- --ignored --nocapture. Cross-checked against Trust Wallet Core's TronMessageSigner vector in that generator. Asserted byte-for-byte by the Rust core, iOS (MessageSigningKATTests), and Android (MessageSigningKatDeviceTest); the iOS/Android copies must stay identical. Mainnet only (Tron has no testnet address variants). Key derives from the standard BIP-39 test mnemonic.",
+  "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+  "seedHex": "5eb00bbddcf069084889a8ab9155568165f5c453ccb85e70811aaed6f6da5fc19a5ac40b389cd370d086206dec8aa6c43daea6690f20ad3d8d48b2d2ce9e38e4",
+  "tron": {
+    "path": "m/44'/195'/0'/0/0",
+    "secretKeyHex": "b5a4cea271ff424d7c31dc12a3e43e401df7a40d7412a15750f3f0b6b5449a28",
+    "message": "Maknoon TIP-191 KAT v1",
+    "expectedAddress": "TUEZSdKsoDHQMeZwihtdoBiN46zxhGWYdH",
+    "expectedSignature": "0x662b8557ae98615a73b7335788c141933b8faf76159ae7d4ec473b6308c2f8e81f28f0902832bd72776991f5e8c1bc28f87ab1ea6cc6a6dfd3ff138c072d59731c"
+  }
+}

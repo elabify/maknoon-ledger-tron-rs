@@ -5,13 +5,16 @@
 // in `@ledgerhq/hw-app-trx` (TypeScript). UniFFI exposes the
 // surface so iOS / Android share one implementation.
 
+mod address;
 mod client;
 mod error;
+mod message;
 mod transport;
 mod types;
 
 pub use client::{LedgerTronClient, TronAddress};
 pub use error::LedgerTronError;
+pub use message::{tron_sign_message, tron_verify_message, TronMsgError, TronSignedMessage};
 pub use transport::{TronExchangeResponse, TronLedgerTransport, TronTransportError};
 pub use types::TronSignature;
 

@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
-use sha2::{Digest, Sha256};
-use sha3::Keccak256;
-
+use crate::address::{tron_base58check, tron_raw_address};
 use crate::error::LedgerTronError;
+use crate::message::{signed_message_from_parts, TronSignedMessage};
 use crate::transport::TronLedgerTransport;
 use crate::types::TronSignature;
 
@@ -16,6 +15,12 @@ const CLA: u8 = 0xE0;
 const INS_GET_PUBLIC_KEY: u8 = 0x02;
 const INS_SIGN: u8 = 0x04;
 const INS_GET_APP_CONFIG: u8 = 0x06;
+// TIP-191 "TRON Signed Message" personal-message signing (app-tron /
+// @ledgerhq/hw-app-trx signPersonalMessage). First chunk = path + u32-BE
+// message length + message (P1_FIRST 0x00); continuation chunks = message
+// bytes only (P1_MORE 0x80). Device applies the "\x19TRON Signed Message:\n"
+// prefix internally and returns the 65-byte R||S||V signature.
+const INS_SIGN_PERSONAL_MESSAGE: u8 = 0x08;
 
 const P1_NON_CONFIRM: u8 = 0x00;
 const P1_CONFIRM: u8 = 0x01;
@@ -145,6 +150,30 @@ impl LedgerTronClient {
         let components = parse_bip32_path(&path)?;
         self.sign_inner(&components, &raw_data).await
     }
+
+    /// Sign an arbitrary UTF-8 message in the TIP-191 "TRON Signed Message"
+    /// format at the standard account path. The device prefixes + hashes +
+    /// signs; the bound T-address is recovered host-side and returned with the
+    /// 0x-hex r||s||v signature (v in {27,28}), matching the software path.
+    pub async fn sign_message_for_account(
+        &self,
+        account: u32,
+        message: String,
+    ) -> Result<TronSignedMessage, LedgerTronError> {
+        let components = standard_tron_path(account);
+        self.sign_message_inner(&components, message).await
+    }
+
+    /// Sign a message at an explicit BIP-32 path. See
+    /// `sign_message_for_account` for semantics.
+    pub async fn sign_message_at_path(
+        &self,
+        path: String,
+        message: String,
+    ) -> Result<TronSignedMessage, LedgerTronError> {
+        let components = parse_bip32_path(&path)?;
+        self.sign_message_inner(&components, message).await
+    }
 }
 
 impl LedgerTronClient {
@@ -179,7 +208,9 @@ impl LedgerTronClient {
                 pubkey.first().copied().unwrap_or(0),
             )));
         }
-        let raw = tron_raw_address(&pubkey)?;
+        let raw = tron_raw_address(&pubkey).ok_or_else(|| {
+            LedgerTronError::protocol("tron_raw_address: input must be 65-byte uncompressed pubkey")
+        })?;
         let base58check = tron_base58check(&raw);
         Ok(TronAddress {
             pubkey,
@@ -248,6 +279,46 @@ impl LedgerTronClient {
             first = false;
         }
         Self::decode_signature(&response)
+    }
+
+    async fn sign_message_inner(
+        &self,
+        components: &[u32],
+        message: String,
+    ) -> Result<TronSignedMessage, LedgerTronError> {
+        let path_bytes = encode_path(components);
+        let msg_bytes = message.as_bytes();
+        // First-chunk payload: path || u32-BE message length || message. The
+        // length prefix is over the WHOLE message (the device computes the
+        // TIP-191 prefix from it); continuation chunks carry message bytes only.
+        let mut head = Vec::with_capacity(path_bytes.len() + 4 + msg_bytes.len());
+        head.extend_from_slice(&path_bytes);
+        head.extend_from_slice(&(msg_bytes.len() as u32).to_be_bytes());
+        head.extend_from_slice(msg_bytes);
+
+        let header_len = path_bytes.len() + 4;
+        if header_len >= MAX_APDU_DATA {
+            return Err(LedgerTronError::protocol(format!(
+                "SIGN_PERSONAL_MESSAGE header {header_len} bytes ≥ APDU ceiling {MAX_APDU_DATA}"
+            )));
+        }
+
+        let mut response = Vec::new();
+        let mut offset = 0usize;
+        let mut first = true;
+        while first || offset < head.len() {
+            let end = (offset + MAX_APDU_DATA).min(head.len());
+            let p1 = if first { P1_FIRST } else { P1_MORE };
+            response = self
+                .exchange(CLA, INS_SIGN_PERSONAL_MESSAGE, p1, 0x00, &head[offset..end])
+                .await?;
+            offset = end;
+            first = false;
+        }
+
+        let sig = Self::decode_signature(&response)?;
+        signed_message_from_parts(&message, &sig.r, &sig.s, sig.v)
+            .map_err(|e| LedgerTronError::protocol(format!("Tron message address recovery: {e}")))
     }
 
     /// Decode a 65-byte R||S||V signature from the device, normalising
@@ -355,41 +426,6 @@ fn encode_path(components: &[u32]) -> Vec<u8> {
     out
 }
 
-/// Compute the 21-byte raw Tron address `[0x41, keccak256(pubkey_xy)[12..]]`
-/// from a 65-byte uncompressed secp256k1 pubkey.
-fn tron_raw_address(pubkey: &[u8]) -> Result<Vec<u8>, LedgerTronError> {
-    if pubkey.len() != 65 || pubkey[0] != 0x04 {
-        return Err(LedgerTronError::protocol(
-            "tron_raw_address: input must be 65-byte uncompressed pubkey",
-        ));
-    }
-    let hash = keccak256(&pubkey[1..]);
-    let mut raw = Vec::with_capacity(21);
-    raw.push(0x41);
-    raw.extend_from_slice(&hash[12..]);
-    Ok(raw)
-}
-
-/// Base58check encode the 21-byte raw Tron address. Tron uses a
-/// double-SHA-256 checksum identical to Bitcoin's base58check.
-fn tron_base58check(raw: &[u8]) -> String {
-    let h1 = Sha256::digest(raw);
-    let h2 = Sha256::digest(h1);
-    let mut buf = Vec::with_capacity(raw.len() + 4);
-    buf.extend_from_slice(raw);
-    buf.extend_from_slice(&h2[..4]);
-    bs58::encode(&buf).into_string()
-}
-
-/// Keccak-256 over the XY coordinates of the secp256k1 pubkey.
-/// Tron uses the same hash function as Ethereum for the address
-/// derivation step; we just take a different prefix byte.
-fn keccak256(input: &[u8]) -> [u8; 32] {
-    let mut h = Keccak256::new();
-    h.update(input);
-    h.finalize().into()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -408,50 +444,6 @@ mod tests {
             0x00, 0x00, 0x00, 0x00, // 0
         ]; // 21 bytes total
         assert_eq!(encoded, expected);
-    }
-
-    #[test]
-    fn keccak256_empty_input() {
-        // keccak256("") = c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470
-        let h = keccak256(&[]);
-        assert_eq!(
-            hex::encode(h),
-            "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
-        );
-    }
-
-    #[test]
-    fn keccak256_abc() {
-        // keccak256("abc") = 4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45
-        let h = keccak256(b"abc");
-        assert_eq!(
-            hex::encode(h),
-            "4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45"
-        );
-    }
-
-    #[test]
-    fn tron_address_from_known_pubkey() {
-        // Real Tron mainnet pubkey/address pair from foundation
-        // docs (anyone-can-verify). Uncompressed 65-byte pubkey →
-        // expected base58check address starts with 'T'.
-        //
-        // Pubkey (uncompressed): 04 + 64-byte XY for an arbitrary
-        // valid secp256k1 point. We just sanity-check the pipeline:
-        // encode → decode → re-encode round-trips, and the address
-        // is 34 chars starting with T.
-        let pubkey = hex::decode(
-            "04eb6c2ef2b08c1c91dbe0e4e60ba00b3b9b6f8cb4d6e0d2a8b6f0b9b3b0c0d0e0\
-             5c5d5e5f5050515253545556575859ABCDEF0123456789ABCDEF0123456789AB"
-                .replace(['\n', ' '], ""),
-        )
-        .unwrap();
-        let raw = tron_raw_address(&pubkey).unwrap();
-        assert_eq!(raw.len(), 21);
-        assert_eq!(raw[0], 0x41);
-        let addr = tron_base58check(&raw);
-        assert!(addr.starts_with('T'));
-        assert_eq!(addr.len(), 34);
     }
 
     #[test]
