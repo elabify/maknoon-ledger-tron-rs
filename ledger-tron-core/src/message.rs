@@ -128,7 +128,9 @@ fn recover_from_compact(compact: &[u8; 64], v: u8, digest: [u8; 32]) -> Option<S
     let recid = RecoveryId::from_i32(recid_i).ok()?;
     let recsig = RecoverableSignature::from_compact(compact, recid).ok()?;
     let secp = Secp256k1::new();
-    let pk: PublicKey = secp.recover_ecdsa(&Message::from_digest(digest), &recsig).ok()?;
+    let pk: PublicKey = secp
+        .recover_ecdsa(&Message::from_digest(digest), &recsig)
+        .ok()?;
     let raw = tron_raw_address(&pk.serialize_uncompressed())?;
     Some(tron_base58check(&raw))
 }
@@ -186,6 +188,10 @@ mod tests {
         let signed = tron_sign_message(sk, msg.clone()).unwrap();
         assert_eq!(signed.address, want_addr);
         assert_eq!(signed.signature, want_sig);
-        assert!(tron_verify_message(want_addr.to_string(), msg, want_sig.to_string()));
+        assert!(tron_verify_message(
+            want_addr.to_string(),
+            msg,
+            want_sig.to_string()
+        ));
     }
 }

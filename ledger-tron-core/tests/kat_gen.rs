@@ -16,7 +16,8 @@ use ledger_tron_core::tron_sign_message;
 use std::str::FromStr;
 
 // Standard BIP-39 test mnemonic seed (empty passphrase) — same as the BTC KAT.
-const TEST_MNEMONIC: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+const TEST_MNEMONIC: &str =
+    "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 const TEST_SEED_HEX: &str = "5eb00bbddcf069084889a8ab9155568165f5c453ccb85e70811aaed6f6da5fc19a5ac40b389cd370d086206dec8aa6c43daea6690f20ad3d8d48b2d2ce9e38e4";
 const TRON_PATH: &str = "m/44'/195'/0'/0/0";
 const TRON_MESSAGE: &str = "Maknoon TIP-191 KAT v1";
@@ -31,7 +32,11 @@ fn secret_at(path: &str) -> [u8; 32] {
     let seed = hex::decode(TEST_SEED_HEX).unwrap();
     let master = Xpriv::new_master(Network::Bitcoin, &seed).unwrap();
     let dp = DerivationPath::from_str(path).unwrap();
-    master.derive_priv(&secp, &dp).unwrap().private_key.secret_bytes()
+    master
+        .derive_priv(&secp, &dp)
+        .unwrap()
+        .private_key
+        .secret_bytes()
 }
 
 #[test]
