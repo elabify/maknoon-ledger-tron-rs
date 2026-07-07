@@ -1,17 +1,20 @@
 # ledger-tron-rs
 
 A Rust core + [UniFFI](https://github.com/mozilla/uniffi-rs) bindings for talking to the
-**Ledger Tron app** from iOS (and other UniFFI targets). The Rust crate implements the
-Ledger Tron app's APDU protocol directly — address derivation and transaction signing —
-while the host platform owns its own BLE / USB transport.
+**Ledger Tron app** from iOS and Android. The Rust crate implements the
+Ledger Tron app's APDU protocol directly (address derivation and transaction signing),
+while the host platform owns its own BLE transport.
 
-Single source of truth, one artifact:
+Single source of truth, two artifacts:
 
 ```
 ledger-tron-rs/
    ├── ledger-tron-core   ←  Rust crate (LedgerTronClient)
-   └── ios                ←  build-xcframework.sh → LedgerTronCore.xcframework
+   ├── ios                ←  build-xcframework.sh → LedgerTronCore.xcframework
+   └── android            ←  android/build-aar.sh → ledger-tron-core.aar
 ```
+
+The Trezor counterpart across all four chains is `trezor-core-rs` (one unified crate).
 
 ## Design pillars
 
@@ -36,8 +39,9 @@ let sig:  Vec<u8> = client.sign_transaction_at_path(path, raw_tx).await?;
 ## Building
 
 ```sh
-make            # fmt-check + clippy + test (CI default)
-make ios        # produces ios/LedgerTronCore.xcframework (run setup-ios-targets once)
+make                    # fmt-check + clippy + test (CI default)
+make ios                # produces ios/LedgerTronCore.xcframework (run setup-ios-targets once)
+./android/build-aar.sh  # produces the ledger-tron-core.aar for Android
 make clean
 ```
 
